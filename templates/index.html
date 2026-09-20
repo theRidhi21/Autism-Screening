@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASD Screening</title>
+<style>
+  :root { --line:#d9dee7; --ink:#1c2430; --muted:#5c6b7f; --accent:#2f6fed; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:32px 16px; background:#f4f6fa; color:var(--ink);
+         font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  main { max-width:760px; margin:0 auto; background:#fff; border:1px solid var(--line);
+         border-radius:12px; padding:28px; }
+  h1 { margin:0 0 4px; font-size:22px; }
+  p.sub { margin:0 0 24px; color:var(--muted); }
+  fieldset { border:1px solid var(--line); border-radius:8px; margin:0 0 20px; padding:16px; }
+  legend { padding:0 6px; font-weight:600; font-size:13px; text-transform:uppercase;
+           letter-spacing:.04em; color:var(--muted); }
+  .q { padding:10px 0; border-bottom:1px solid #eef1f6; }
+  .q:last-child { border-bottom:0; }
+  .q p { margin:0 0 8px; }
+  .opts label { margin-right:18px; color:var(--muted); cursor:pointer; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
+  label.field { display:block; font-size:13px; font-weight:600; margin-bottom:5px; }
+  select, input[type=number] { width:100%; padding:9px 10px; border:1px solid var(--line);
+         border-radius:6px; font:inherit; background:#fff; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px;
+           padding:12px 22px; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:default; }
+  #result { margin-top:18px; padding:20px 22px; border-radius:8px; display:none;
+            border-left-width:4px; border-left-style:solid; }
+  #result.asd    { display:block; background:#fff8ee; border:1px solid #f0d19a;
+                   border-left-color:#d38b0b; }
+  #result.no-asd { display:block; background:#f0f9f3; border:1px solid #b6dfc3;
+                   border-left-color:#2f8d51; }
+  #result.err    { display:block; background:#fdeeee; border:1px solid #f5c6c6;
+                   border-left-color:#c23b3b; }
+  #result h2 { margin:0; font-size:21px; letter-spacing:-.01em; }
+  #result.asd h2    { color:#8a5a00; }
+  #result.no-asd h2 { color:#1d6b38; }
+  #result.err h2    { color:#a12b2b; }
+  #result p { margin:0; font-size:14.5px; color:#44506180; color:#445061; }
+  #result .next { margin-top:12px; padding-top:12px; border-top:1px solid #0000001a;
+                  font-size:13.5px; color:var(--muted); }
+  /* unanswered question */
+  .q.missing { background:#fdf3f3; border-left:3px solid #d94a4a; padding-left:12px;
+               margin-left:-15px; border-radius:4px; }
+  .q.missing > p { color:#a12b2b; font-weight:600; }
+  .warn { display:none; color:#a12b2b; font-size:13px; margin-top:6px; }
+  .q.missing .warn { display:block; }
+  #form-error { display:none; margin:0 0 14px; padding:11px 14px; border-radius:6px;
+                background:#fdeeee; border:1px solid #f5c6c6; color:#a12b2b; font-size:14px; }
+  #form-error.show { display:block; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Autism Spectrum Screening</h1>
+  <p class="sub">AQ-10 questionnaire</p>
+
+  <form id="form">
+    <fieldset>
+      <legend>AQ-10 questions</legend>
+      <div id="questions"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>About the person</legend>
+      <div class="grid">
+        <div>
+          <label class="field" for="age">Age</label>
+          <input type="number" id="age" name="age" min="1" max="120" value="25" required>
+        </div>
+        <div>
+          <label class="field" for="gender">Gender</label>
+          <select id="gender" name="gender">
+            <option value="m">Male</option>
+            <option value="f">Female</option>
+          </select>
+        </div>
+        <div>
+          <label class="field" for="ethnicity">Ethnicity</label>
+          <select id="ethnicity" name="ethnicity">
+            {% for e in ethnicities %}<option value="{{ e }}">{{ e.strip() }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field" for="country_of_res">Country of residence</label>
+          <select id="country_of_res" name="country_of_res">
+            {% for c in countries %}<option value="{{ c }}"{% if c == 'India' %} selected{% endif %}>{{ c }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field" for="jaundice">Born with jaundice?</label>
+          <select id="jaundice" name="jaundice">
+            <option value="no">No</option><option value="yes">Yes</option>
+          </select>
+        </div>
+        <div>
+          <label class="field" for="austim">Family member with ASD?</label>
+          <select id="austim" name="austim">
+            <option value="no">No</option><option value="yes">Yes</option>
+          </select>
+        </div>
+        <div>
+          <label class="field" for="relation">Who is completing this?</label>
+          <select id="relation" name="relation">
+            {% for r in relations %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+    </fieldset>
+
+    <p id="form-error"></p>
+    <button type="submit">Get result</button>
+  </form>
+
+  <div id="result"></div>
+</main>
+
+<script>
+// AQ-10 (adult). "agree" is the scoring answer for items 1, 7, 8 and 10;
+// "disagree" is the scoring answer for the rest. Option values are the score.
+const QUESTIONS = [
+  ["I often notice small sounds when others do not.", "agree"],
+  ["I usually concentrate more on the whole picture, rather than small details.", "disagree"],
+  ["I find it easy to do more than one thing at once.", "disagree"],
+  ["If there is an interruption, I can switch back to what I was doing very quickly.", "disagree"],
+  ["I find it easy to read between the lines when someone is talking to me.", "disagree"],
+  ["I know how to tell if someone listening to me is getting bored.", "disagree"],
+  ["When I am reading a story, I find it difficult to work out the characters' intentions.", "agree"],
+  ["I like to collect information about categories of things (types of car, bird, train, plant).", "agree"],
+  ["I find it easy to work out what someone is thinking or feeling just by looking at their face.", "disagree"],
+  ["I find it hard to work out people's intentions.", "agree"]
+];
+
+const formError = document.getElementById('form-error');
+const box = document.getElementById('questions');
+QUESTIONS.forEach(([text, scoring], idx) => {
+  const n = idx + 1;
+  const agreeValue = scoring === 'agree' ? 1 : 0;
+  const el = document.createElement('div');
+  el.className = 'q';
+  el.innerHTML = `<p>${n}. ${text}</p>
+    <div class="opts">
+      <label><input type="radio" name="a${n}_score" value="${agreeValue}"> Agree</label>
+      <label><input type="radio" name="a${n}_score" value="${1 - agreeValue}"> Disagree</label>
+    </div>
+    <div class="warn">Please answer this question.</div>`;
+  box.appendChild(el);
+  // Clear the highlight as soon as the question is answered.
+  el.addEventListener('change', () => {
+    el.classList.remove('missing');
+    if (!box.querySelector('.q.missing')) formError.classList.remove('show');
+  });
+});
+
+const OUTCOMES = {
+  'ASD':    { cls: 'asd',    heading: 'Indicators of autism spectrum traits' },
+  'No ASD': { cls: 'no-asd', heading: 'No indicators of autism spectrum traits' }
+};
+
+function render(result) {
+  const o = OUTCOMES[result];
+  out.className = o.cls;
+  out.innerHTML = `<h2>${o.heading}</h2>`;
+}
+
+const form = document.getElementById('form');
+const out = document.getElementById('result');
+
+// Every AQ-10 question must be answered before the form can be submitted.
+// Unanswered ones are highlighted and the first is scrolled into view.
+function findUnanswered() {
+  const missing = [];
+  document.querySelectorAll('#questions .q').forEach((q, idx) => {
+    const answered = q.querySelector('input[type=radio]:checked');
+    q.classList.toggle('missing', !answered);
+    if (!answered) missing.push(idx + 1);
+  });
+  return missing;
+}
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  const missing = findUnanswered();
+  if (missing.length) {
+    out.className = '';
+    formError.textContent = missing.length === 1
+      ? `Please answer question ${missing[0]} before getting your result.`
+      : `Please answer all questions. ${missing.length} are unanswered: ${missing.join(', ')}.`;
+    formError.classList.add('show');
+    document.querySelector('.q.missing').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  formError.classList.remove('show');
+
+  const button = form.querySelector('button');
+  button.disabled = true;
+  try {
+    const response = await fetch('/predict', { method: 'POST', body: new FormData(form) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Request failed');
+    render(data.result);
+  } catch (err) {
+    out.className = 'err';
+    out.innerHTML = `<h2>Couldn't get a result</h2>`;
+  } finally {
+    button.disabled = false;
+    out.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+});
+</script>
+</body>
+</html>
