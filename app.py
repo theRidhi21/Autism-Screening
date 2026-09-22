@@ -1,113 +1,35 @@
+import json
 import os
 
 from flask import Flask, request, jsonify, render_template
-import pandas as pd
-import joblib
 from flask_cors import CORS  # Import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-# Load the model. The path is absolute because the server's working directory
-# is not necessarily this folder (PythonAnywhere runs from elsewhere).
+# The trained SVM is linear, so its decision function is just a dot product
+# plus an intercept -- no need to ship scikit-learn/pandas/numpy just to run
+# it. The weights below were extracted once from saved_model.pkl (see
+# extract_weights.py) and are loaded here as plain JSON. The path is absolute
+# because the server's working directory is not necessarily this folder
+# (PythonAnywhere runs from elsewhere).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-classifier = joblib.load(os.path.join(BASE_DIR, 'saved_model.pkl'))
+with open(os.path.join(BASE_DIR, 'model_weights.json')) as f:
+    _weights = json.load(f)
 
-# Define your model columns based on your previous setup
-model_columns=['age',
- 'result',
- 'A1_Score',
- 'A2_Score',
- 'A3_Score',
- 'A4_Score',
- 'A5_Score',
- 'A6_Score',
- 'A7_Score',
- 'A8_Score',
- 'A9_Score',
- 'A10_Score',
- 'gender_f',
- 'gender_m',
- 'ethnicity_Asian',
- 'ethnicity_Black',
- 'ethnicity_Hispanic',
- 'ethnicity_Latino',
- 'ethnicity_Middle Eastern ',
- 'ethnicity_Others',
- 'ethnicity_Pasifika',
- 'ethnicity_South Asian',
- 'ethnicity_Turkish',
- 'ethnicity_White-European',
- 'ethnicity_others',
- 'jundice_no',
- 'jundice_yes',
- 'austim_no',
- 'austim_yes',
- 'contry_of_res_Afghanistan',
- 'contry_of_res_AmericanSamoa',
- 'contry_of_res_Angola',
- 'contry_of_res_Armenia',
- 'contry_of_res_Aruba',
- 'contry_of_res_Australia',
- 'contry_of_res_Austria',
- 'contry_of_res_Bahamas',
- 'contry_of_res_Bangladesh',
- 'contry_of_res_Belgium',
- 'contry_of_res_Bolivia',
- 'contry_of_res_Brazil',
- 'contry_of_res_Burundi',
- 'contry_of_res_Canada',
- 'contry_of_res_Chile',
- 'contry_of_res_China',
- 'contry_of_res_Costa Rica',
- 'contry_of_res_Cyprus',
- 'contry_of_res_Czech Republic',
- 'contry_of_res_Ecuador',
- 'contry_of_res_Egypt',
- 'contry_of_res_Ethiopia',
- 'contry_of_res_Finland',
- 'contry_of_res_France',
- 'contry_of_res_Germany',
- 'contry_of_res_Iceland',
- 'contry_of_res_India',
- 'contry_of_res_Indonesia',
- 'contry_of_res_Iran',
- 'contry_of_res_Ireland',
- 'contry_of_res_Italy',
- 'contry_of_res_Jordan',
- 'contry_of_res_Malaysia',
- 'contry_of_res_Mexico',
- 'contry_of_res_Nepal',
- 'contry_of_res_Netherlands',
- 'contry_of_res_New Zealand',
- 'contry_of_res_Nicaragua',
- 'contry_of_res_Niger',
- 'contry_of_res_Oman',
- 'contry_of_res_Pakistan',
- 'contry_of_res_Philippines',
- 'contry_of_res_Portugal',
- 'contry_of_res_Romania',
- 'contry_of_res_Russia',
- 'contry_of_res_Saudi Arabia',
- 'contry_of_res_Serbia',
- 'contry_of_res_Sierra Leone',
- 'contry_of_res_South Africa',
- 'contry_of_res_Spain',
- 'contry_of_res_Sri Lanka',
- 'contry_of_res_Sweden',
- 'contry_of_res_Tonga',
- 'contry_of_res_Turkey',
- 'contry_of_res_Ukraine',
- 'contry_of_res_United Arab Emirates',
- 'contry_of_res_United Kingdom',
- 'contry_of_res_United States',
- 'contry_of_res_Uruguay',
- 'contry_of_res_Viet Nam',
- 'relation_Health care professional',
- 'relation_Others',
- 'relation_Parent',
- 'relation_Relative',
- 'relation_Self']
+model_columns = _weights['features']
+_coef = _weights['coef']
+_intercept = _weights['intercept']
+_classes = _weights['classes']
+
+
+def predict_asd(feature_dict):
+    """Binary linear-SVM decision rule: score >= 0 picks the second (higher)
+    class, matching scikit-learn's convention for a two-class SVC."""
+    score = _intercept
+    for name, weight in zip(model_columns, _coef):
+        score += weight * feature_dict[name]
+    return _classes[1] if score >= 0 else _classes[0]
 
 
 def options_for(prefix):
@@ -133,42 +55,42 @@ def predict():
     # Extract and convert form data to dictionary
     form_data = request.form.to_dict()
     try:
-        processed_data = preprocess_data(form_data)
+        features = preprocess_data(form_data)
     except (KeyError, ValueError) as exc:
         return jsonify({'error': f'Invalid input: {exc}'}), 400
 
     # Make prediction
-    prediction = classifier.predict(processed_data)
-    result = "ASD" if prediction[0] == 1 else "No ASD"
+    prediction = predict_asd(features)
+    result = "ASD" if prediction == 1 else "No ASD"
 
     return jsonify({'result': result,
-                    'score': int(processed_data.loc[0, 'result'])})
+                    'score': int(features['result'])})
 
 def preprocess_data(form_data):
-    # Initialize data for all model features
-    data = pd.DataFrame(0, columns=model_columns, index=[0], dtype=float)
+    # Initialize every model feature to 0
+    data = {name: 0.0 for name in model_columns}
 
     # Numeric data
     age = float(form_data['age'])
     if not 1 <= age <= 120:
         raise ValueError('age must be between 1 and 120')
-    data.loc[0, 'age'] = age
+    data['age'] = age
 
     # Scores and result
     for i in range(1, 11):
         score = int(form_data.get(f'a{i}_score', 0))
         if score not in (0, 1):
             raise ValueError(f'a{i}_score must be 0 or 1')
-        data.loc[0, f'A{i}_Score'] = score
+        data[f'A{i}_Score'] = score
 
     # Calculate result based on A1_Score to A10_Score
-    data.loc[0, 'result'] = sum(data.loc[0, f'A{i}_Score'] for i in range(1, 11))
+    data['result'] = sum(data[f'A{i}_Score'] for i in range(1, 11))
 
     # Gender
     if form_data['gender'] == 'f':
-        data.loc[0, 'gender_f'] = 1
+        data['gender_f'] = 1
     else:
-        data.loc[0, 'gender_m'] = 1
+        data['gender_m'] = 1
 
     # Ethnicity, country and relation are one-hot columns whose names contain
     # spaces, so the form value is used verbatim -- no substitution.
@@ -185,14 +107,14 @@ def preprocess_data(form_data):
 
 def set_one_hot(data, prefix, value):
     column = prefix + value
-    if column not in data.columns:
+    if column not in data:
         raise ValueError(f'unknown value {value!r} for {prefix.rstrip("_")}')
-    data.loc[0, column] = 1
+    data[column] = 1
 
 def set_yes_no(data, prefix, value):
     if value not in ('yes', 'no'):
         raise ValueError(f'{prefix} must be yes or no')
-    data.loc[0, f'{prefix}_{value}'] = 1
+    data[f'{prefix}_{value}'] = 1
 
 if __name__ == '__main__':
     # Debug must stay off in production: the Werkzeug debugger allows arbitrary
